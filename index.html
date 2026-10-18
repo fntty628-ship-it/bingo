@@ -79,7 +79,6 @@ header{text-align:center;padding:6px 0 2px;user-select:none;-webkit-user-select:
 .legend .l-today::before{background:#f6f8fb}
 .legend .l-know::before{background:#f7faf6}
 .legend .l-couple::before{background:#fffaf0;border-color:var(--gold)}
-.legend .l-star::before{content:"★";border:none;color:var(--gold);width:auto;height:auto;font-size:11px}
 
 /* ===== オーバーレイ / モーダル ===== */
 .overlay{position:fixed;inset:0;background:rgba(80,50,45,.45);display:none;align-items:center;justify-content:center;
@@ -179,6 +178,7 @@ header{text-align:center;padding:6px 0 2px;user-select:none;-webkit-user-select:
     <div class="me" id="meLine"></div>
     <div class="toolbar">
       <button class="chip" id="btnRules" type="button">📖 ルール</button>
+      <button class="chip" id="btnMe" type="button" style="display:none">👤 名前を変更</button>
       <button class="chip bingo" id="btnBingoAgain" type="button" style="display:none">🎉 BINGO達成を表示</button>
     </div>
     <div class="progress" id="progress"></div>
@@ -190,7 +190,6 @@ header{text-align:center;padding:6px 0 2px;user-select:none;-webkit-user-select:
     <span class="l-today">今日の行動</span>
     <span class="l-know">新郎新婦を知ってる</span>
     <span class="l-couple">新郎新婦本人</span>
-    <span class="l-star">難しめ</span>
   </div>
 </div>
 
@@ -198,9 +197,10 @@ header{text-align:center;padding:6px 0 2px;user-select:none;-webkit-user-select:
 <div class="overlay" id="ovWho">
   <div class="modal">
     <h2>あなたは誰？</h2>
-    <div class="hint">自分の名前を選んでください(名前の一部やひらがなでも検索できます)</div>
+    <div class="hint" id="whoHint">自分の名前を選んでください(名前の一部やひらがなでも検索できます)</div>
     <input type="search" id="whoSearch" placeholder="名前で検索" autocomplete="off">
     <div class="list tall" id="whoList"></div>
+    <button type="button" class="btn secondary block" id="whoCancel" style="display:none">やめる</button>
   </div>
 </div>
 
@@ -226,8 +226,9 @@ header{text-align:center;padding:6px 0 2px;user-select:none;-webkit-user-select:
     <div class="viewtime" id="viewTime"></div>
     <div class="btnrow">
       <button type="button" class="btn danger" id="viewDelete">取り消す</button>
-      <button type="button" class="btn primary" id="viewClose">閉じる</button>
+      <button type="button" class="btn secondary" id="viewChange">別の人にする</button>
     </div>
+    <button type="button" class="btn primary block" id="viewClose">閉じる</button>
   </div>
 </div>
 
@@ -358,7 +359,7 @@ const GUESTS = [
 //  ・文字列だけなら誰でも登録できるお題
 //  ・{ t:"…", only:"opposite" } は自分と反対側のゲストだけ選べる
 //  ・{ t:"…", only:"groom" / "bride" } は新郎/新婦本人だけ選べる
-//  ・hard:true の系統は ★ 印が付きます(難しめ)
+//  ・hard:true は「難しめ」の目印(画面には出ません。配分の管理用)
 const POOLS = [
   { key:"self", label:"自分のこと(普通)", count:6, items:[
     "県外から来た",
@@ -583,7 +584,7 @@ function renderGrid(){
     b.type = "button";
     b.className = "cell cat-" + item.cat;
     const c = state.cells[i];
-    const star = item.hard ? `<span class="star">★</span>` : "";
+    const star = ""; // 難しめの印は出さない(hard フラグは配分にだけ使う)
     if(c){
       b.classList.add("done");
       b.innerHTML = `${star}<span class="mark">✓</span><span class="task"></span><span class="name"></span>`;
@@ -607,6 +608,7 @@ function renderHeader(){
   const lines = completedLineIdx(state.cells).length;
   $("progress").textContent = `登録 ${n} / 25　そろった列 ${lines}　(${state.winLines}列でBINGO)`;
   $("btnBingoAgain").style.display = state.bingo ? "" : "none";
+  $("btnMe").style.display = state.me ? "" : "none";
   const m = $("meLine");
   if(state.me){
     m.innerHTML = `あなた: <b></b> <span class="badge"></span>`;
@@ -652,6 +654,13 @@ function personRow(p, opts){
 function openWho(){
   $("whoSearch").value = "";
   renderWho("");
+  if(state.me){
+    $("whoHint").textContent = `いまは「${state.me.name}」です。正しい名前を選び直してください`;
+    $("whoCancel").style.display = "";
+  }else{
+    $("whoHint").textContent = "自分の名前を選んでください(名前の一部やひらがなでも検索できます)";
+    $("whoCancel").style.display = "none";
+  }
   show("ovWho");
   setTimeout(()=>{ try{ $("whoSearch").focus(); }catch(_){} }, 50);
 }
@@ -681,6 +690,8 @@ function chooseMe(p){
   }, "この名前で始める", "違う");
 }
 $("whoSearch").addEventListener("input", (e)=>renderWho(e.target.value));
+$("whoCancel").addEventListener("click", ()=>{ if(state.me) hide("ovWho"); });
+$("btnMe").addEventListener("click", openWho);
 
 // ---------- 該当者を選ぶ ----------
 let pickIndex = -1, pickSide = "groom";
@@ -771,6 +782,10 @@ function openView(i){
   show("ovView");
 }
 $("viewClose").addEventListener("click", ()=>hide("ovView"));
+$("viewChange").addEventListener("click", ()=>{
+  // 登録はそのまま残し、別の人を選んだ時点で置き換える(途中でやめても消えない)
+  const i = viewIndex; hide("ovView"); openPick(i);
+});
 $("ovView").addEventListener("click", (e)=>{ if(e.target.id==="ovView") hide("ovView"); });
 $("viewDelete").addEventListener("click", ()=>{
   const i = viewIndex;
